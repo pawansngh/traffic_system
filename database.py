@@ -1,7 +1,9 @@
 import sqlite3
+import os
 from datetime import datetime
 
-DB_NAME = "traffic.db"
+# Use /tmp for Render (writable directory)
+DB_NAME = os.path.join("/tmp", "traffic.db")
 
 # ── Create tables if they don't exist ────────────────────────
 def init_db():
