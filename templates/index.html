@@ -51,7 +51,7 @@
 
   <script>
     async function fetchStats() {
-      const res  = await fetch('https://traffic-system.onrender.com');
+      const res  = await fetch('http://127.0.0.1:5000/api/stats');
       const json = await res.json();
       document.getElementById('total').textContent     = json.total_vehicles;
       document.getElementById('wait').textContent      = json.avg_wait_time + 's';
@@ -60,7 +60,7 @@
     }
 
     async function fetchSignals() {
-      const res  = await fetch('https://traffic-system.onrender.com');
+      const res  = await fetch('http://127.0.0.1:5000/api/signals');
       const json = await res.json();
       const container = document.getElementById('lanes');
       container.innerHTML = '';
@@ -92,35 +92,8 @@
 
     refresh();
     setInterval(refresh, 3000);  // auto-refresh every 3 seconds
-async function fetchHistory() {
-  const res  = await fetch('https://traffic-system.onrender.com');
-  const json = await res.json();
-  const body = document.getElementById('historyBody');
-  body.innerHTML = '';
 
-  const colors = { GREEN: '#2e7d32', AMBER: '#f57c00', RED: '#c62828' };
-
-  json.data.forEach(row => {
-    body.innerHTML += `
-      <tr style="border-top: 1px solid #eee;">
-        <td style="padding: 9px 14px; color: #888;">${row.timestamp}</td>
-        <td style="padding: 9px 14px;">${row.lane}</td>
-        <td style="padding: 9px 14px;">
-          <span style="color: ${colors[row.signal]}; font-weight: bold;">${row.signal}</span>
-        </td>
-        <td style="padding: 9px 14px;">${row.vehicles}</td>
-        <td style="padding: 9px 14px;">${row.duration}s</td>
-      </tr>`;
-  });
-}
-
-// Add fetchHistory to your refresh function
-async function refresh() {
-  await fetchStats();
-  await fetchSignals();
-  await fetchHistory();   // ← add this line
-}
-
+    
   </script>
 
   <!-- History Table -->
