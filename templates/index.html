@@ -51,7 +51,7 @@
 
   <script>
     async function fetchStats() {
-      const res  = await fetch('http://127.0.0.1:5000/api/stats');
+      const res  = await fetch('https://traffic-system.onrender.com');
       const json = await res.json();
       document.getElementById('total').textContent     = json.total_vehicles;
       document.getElementById('wait').textContent      = json.avg_wait_time + 's';
@@ -60,7 +60,7 @@
     }
 
     async function fetchSignals() {
-      const res  = await fetch('http://127.0.0.1:5000/api/signals');
+      const res  = await fetch('https://traffic-system.onrender.com');
       const json = await res.json();
       const container = document.getElementById('lanes');
       container.innerHTML = '';
@@ -93,7 +93,7 @@
     refresh();
     setInterval(refresh, 3000);  // auto-refresh every 3 seconds
 async function fetchHistory() {
-  const res  = await fetch('http://127.0.0.1:5000/api/history');
+  const res  = await fetch('https://traffic-system.onrender.com');
   const json = await res.json();
   const body = document.getElementById('historyBody');
   body.innerHTML = '';
