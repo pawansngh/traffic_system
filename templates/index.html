@@ -13,20 +13,23 @@
     .metric-label { font-size: 12px; color: #888; margin-bottom: 6px; }
     .metric-value { font-size: 24px; font-weight: bold; color: #222; }
 
-    .lanes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    .lanes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 2rem; }
     .lane-card { background: white; border-radius: 10px; padding: 1rem 1.25rem; }
     .lane-name { font-size: 14px; font-weight: bold; margin-bottom: 8px; }
     .signal-dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; margin-right: 6px; }
-    .GREEN  { background: #2e7d32; }
-    .AMBER  { background: #f57c00; }
-    .RED    { background: #c62828; }
+    .GREEN { background: #2e7d32; }
+    .AMBER { background: #f57c00; }
+    .RED   { background: #c62828; }
     .bar-bg { background: #eee; border-radius: 4px; height: 8px; margin-top: 8px; }
     .bar-fill { height: 8px; border-radius: 4px; background: #378ADD; }
     .lane-meta { font-size: 12px; color: #888; margin-top: 6px; }
+
+    .error { color: #c62828; font-size: 13px; margin-bottom: 1rem; padding: 10px; background: #fff0f0; border-radius: 8px; }
   </style>
 </head>
 <body>
   <h1>Traffic Management Dashboard</h1>
+  <div id="errorMsg"></div>
 
   <div class="metrics">
     <div class="metric">
@@ -35,7 +38,7 @@
     </div>
     <div class="metric">
       <div class="metric-label">Avg wait time</div>
-      <div class="metric-value" id="wait">--s</div>
+      <div class="metric-value" id="wait">--</div>
     </div>
     <div class="metric">
       <div class="metric-label">Active junctions</div>
@@ -49,9 +52,39 @@
 
   <div class="lanes" id="lanes"></div>
 
+  <h2 style="margin: 1rem 0; font-size: 1.1rem; color: #222;">Signal History Log</h2>
+  <div style="background: white; border-radius: 10px; overflow: hidden;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+      <thead style="background: #f0f0f0;">
+        <tr>
+          <th style="padding: 10px 14px; text-align: left;">Time</th>
+          <th style="padding: 10px 14px; text-align: left;">Lane</th>
+          <th style="padding: 10px 14px; text-align: left;">Signal</th>
+          <th style="padding: 10px 14px; text-align: left;">Vehicles</th>
+          <th style="padding: 10px 14px; text-align: left;">Green for</th>
+        </tr>
+      </thead>
+      <tbody id="historyBody">
+        <tr><td colspan="5" style="padding: 14px; color: #888;">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
   <script>
+    // ── Auto-detect the API base URL ──────────────────────────
+    const BASE = window.location.origin;
+
+    function showError(msg) {
+      document.getElementById('errorMsg').innerHTML =
+        `<div class="error">API Error: ${msg} — retrying...</div>`;
+    }
+
+    function clearError() {
+      document.getElementById('errorMsg').innerHTML = '';
+    }
+
     async function fetchStats() {
-const res = await fetch('https://traffic-system-m466.onrender.com/api/stats');
+      const res  = await fetch(`${BASE}/api/stats`);
       const json = await res.json();
       document.getElementById('total').textContent     = json.total_vehicles;
       document.getElementById('wait').textContent      = json.avg_wait_time + 's';
@@ -60,14 +93,14 @@ const res = await fetch('https://traffic-system-m466.onrender.com/api/stats');
     }
 
     async function fetchSignals() {
-      const res = await fetch('https://traffic-system-m466.onrender.com/api/signals');
+      const res  = await fetch(`${BASE}/api/signals`);
       const json = await res.json();
       const container = document.getElementById('lanes');
       container.innerHTML = '';
 
       json.data.forEach(lane => {
-        const pct  = Math.min(100, Math.round(lane.vehicles / 3));
-        const card = `
+        const pct = Math.min(100, Math.round(lane.vehicles / 3));
+        container.innerHTML += `
           <div class="lane-card">
             <div class="lane-name">
               <span class="signal-dot ${lane.signal}"></span>
@@ -81,66 +114,48 @@ const res = await fetch('https://traffic-system-m466.onrender.com/api/stats');
             </div>
             <div class="lane-meta">${lane.vehicles} vehicles detected</div>
           </div>`;
-        container.innerHTML += card;
+      });
+    }
+
+    async function fetchHistory() {
+      const res  = await fetch(`${BASE}/api/history`);
+      const json = await res.json();
+      const body = document.getElementById('historyBody');
+      const colors = { GREEN: '#2e7d32', AMBER: '#f57c00', RED: '#c62828' };
+
+      if (!json.data || json.data.length === 0) {
+        body.innerHTML = '<tr><td colspan="5" style="padding:14px; color:#888;">No history yet — data will appear shortly.</td></tr>';
+        return;
+      }
+
+      body.innerHTML = '';
+      json.data.forEach(row => {
+        body.innerHTML += `
+          <tr style="border-top: 1px solid #eee;">
+            <td style="padding: 9px 14px; color: #888;">${row.timestamp}</td>
+            <td style="padding: 9px 14px;">${row.lane}</td>
+            <td style="padding: 9px 14px;">
+              <span style="color:${colors[row.signal]}; font-weight:bold;">${row.signal}</span>
+            </td>
+            <td style="padding: 9px 14px;">${row.vehicles}</td>
+            <td style="padding: 9px 14px;">${row.duration}s</td>
+          </tr>`;
       });
     }
 
     async function refresh() {
-      await fetchStats();
-      await fetchSignals();
+      try {
+        await fetchStats();
+        await fetchSignals();
+        await fetchHistory();
+        clearError();
+      } catch (err) {
+        showError(err.message);
+      }
     }
 
     refresh();
-    setInterval(refresh, 3000);  // auto-refresh every 3 seconds
-
-    async function fetchHistory() {
-  const res  = await fetch('https://traffic-system-m466.onrender.com/api/history');
-  const json = await res.json();
-  const body = document.getElementById('historyBody');
-  body.innerHTML = '';
-
-  const colors = { GREEN: '#2e7d32', AMBER: '#f57c00', RED: '#c62828' };
-
-  json.data.forEach(row => {
-    body.innerHTML += `
-      <tr style="border-top: 1px solid #eee;">
-        <td style="padding: 9px 14px; color: #888;">${row.timestamp}</td>
-        <td style="padding: 9px 14px;">${row.lane}</td>
-        <td style="padding: 9px 14px;">
-          <span style="color: ${colors[row.signal]}; font-weight: bold;">${row.signal}</span>
-        </td>
-        <td style="padding: 9px 14px;">${row.vehicles}</td>
-        <td style="padding: 9px 14px;">${row.duration}s</td>
-      </tr>`;
-  });
-}
-
-// Update refresh() to include fetchHistory
-async function refresh() {
-  await fetchStats();
-  await fetchSignals();
-  await fetchHistory();
-}
-    
+    setInterval(refresh, 3000);
   </script>
-
-  <!-- History Table -->
-<h2 style="margin: 2rem 0 1rem; font-size: 1.1rem; color: #222;">Signal History Log</h2>
-<div style="background: white; border-radius: 10px; overflow: hidden;">
-  <table id="historyTable" style="width: 100%; border-collapse: collapse; font-size: 13px;">
-    <thead style="background: #f0f0f0;">
-      <tr>
-        <th style="padding: 10px 14px; text-align: left;">Time</th>
-        <th style="padding: 10px 14px; text-align: left;">Lane</th>
-        <th style="padding: 10px 14px; text-align: left;">Signal</th>
-        <th style="padding: 10px 14px; text-align: left;">Vehicles</th>
-        <th style="padding: 10px 14px; text-align: left;">Green for</th>
-      </tr>
-    </thead>
-    <tbody id="historyBody">
-      <tr><td colspan="5" style="padding: 14px; color: #888;">Loading...</td></tr>
-    </tbody>
-  </table>
-</div>
 </body>
 </html>
