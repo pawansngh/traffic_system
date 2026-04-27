@@ -3,5 +3,5 @@ services:
     name: traffic-system
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn api:app
+    startCommand: gunicorn --worker-class eventlet -w 1 api:app
     plan: free

@@ -3,33 +3,51 @@
 <head>
   <meta charset="UTF-8" />
   <title>Traffic Management Dashboard</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: sans-serif; background: #f4f4f4; padding: 2rem; }
-    h1 { font-size: 1.4rem; margin-bottom: 1.5rem; color: #222; }
+    h1 { font-size: 1.4rem; margin-bottom: 0.3rem; color: #222; }
+    .subtitle { font-size: 12px; color: #888; margin-bottom: 1.5rem; }
+
+    .status-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 1.5rem; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #ccc; }
+    .status-dot.connected { background: #2e7d32; animation: pulse 1.5s infinite; }
+    .status-label { font-size: 13px; color: #555; }
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
 
     .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 1.5rem; }
-    .metric { background: white; border-radius: 10px; padding: 1rem; text-align: center; }
+    .metric { background: white; border-radius: 10px; padding: 1rem; text-align: center; transition: transform 0.2s; }
+    .metric:hover { transform: translateY(-2px); }
     .metric-label { font-size: 12px; color: #888; margin-bottom: 6px; }
     .metric-value { font-size: 24px; font-weight: bold; color: #222; }
 
     .lanes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 2rem; }
-    .lane-card { background: white; border-radius: 10px; padding: 1rem 1.25rem; }
-    .lane-name { font-size: 14px; font-weight: bold; margin-bottom: 8px; }
-    .signal-dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; margin-right: 6px; }
+    .lane-card { background: white; border-radius: 10px; padding: 1rem 1.25rem; transition: box-shadow 0.3s; }
+    .lane-card.flash { box-shadow: 0 0 0 3px #378ADD44; }
+    .lane-name { font-size: 14px; font-weight: bold; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+    .signal-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
     .GREEN { background: #2e7d32; }
     .AMBER { background: #f57c00; }
     .RED   { background: #c62828; }
     .bar-bg { background: #eee; border-radius: 4px; height: 8px; margin-top: 8px; }
-    .bar-fill { height: 8px; border-radius: 4px; background: #378ADD; }
+    .bar-fill { height: 8px; border-radius: 4px; background: #378ADD; transition: width 0.6s ease; }
     .lane-meta { font-size: 12px; color: #888; margin-top: 6px; }
 
-    .error { color: #c62828; font-size: 13px; margin-bottom: 1rem; padding: 10px; background: #fff0f0; border-radius: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead { background: #f0f0f0; }
+    th { padding: 10px 14px; text-align: left; font-weight: 600; }
+    td { padding: 9px 14px; border-top: 1px solid #eee; }
   </style>
 </head>
 <body>
   <h1>Traffic Management Dashboard</h1>
-  <div id="errorMsg"></div>
+  <p class="subtitle">Live data via WebSocket — updates instantly</p>
+
+  <div class="status-bar">
+    <div class="status-dot" id="statusDot"></div>
+    <span class="status-label" id="statusLabel">Connecting...</span>
+  </div>
 
   <div class="metrics">
     <div class="metric">
@@ -52,110 +70,95 @@
 
   <div class="lanes" id="lanes"></div>
 
-  <h2 style="margin: 1rem 0; font-size: 1.1rem; color: #222;">Signal History Log</h2>
-  <div style="background: white; border-radius: 10px; overflow: hidden;">
-    <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
-      <thead style="background: #f0f0f0;">
+  <h2 style="margin-bottom: 1rem; font-size: 1.1rem; color: #222;">Signal History Log</h2>
+  <div style="background: white; border-radius: 10px; overflow: hidden; margin-bottom: 2rem;">
+    <table>
+      <thead>
         <tr>
-          <th style="padding: 10px 14px; text-align: left;">Time</th>
-          <th style="padding: 10px 14px; text-align: left;">Lane</th>
-          <th style="padding: 10px 14px; text-align: left;">Signal</th>
-          <th style="padding: 10px 14px; text-align: left;">Vehicles</th>
-          <th style="padding: 10px 14px; text-align: left;">Green for</th>
+          <th>Time</th>
+          <th>Lane</th>
+          <th>Signal</th>
+          <th>Vehicles</th>
+          <th>Green for</th>
         </tr>
       </thead>
       <tbody id="historyBody">
-        <tr><td colspan="5" style="padding: 14px; color: #888;">Loading...</td></tr>
+        <tr><td colspan="5" style="padding:14px; color:#888;">Waiting for data...</td></tr>
       </tbody>
     </table>
   </div>
 
   <script>
-    // ── Auto-detect the API base URL ──────────────────────────
-    const BASE = window.location.origin;
+    const socket = io();
+    const colors = { GREEN: '#2e7d32', AMBER: '#f57c00', RED: '#c62828' };
 
-    function showError(msg) {
-      document.getElementById('errorMsg').innerHTML =
-        `<div class="error">API Error: ${msg} — retrying...</div>`;
+    // ── Connection status ─────────────────────────────────────
+    socket.on('connect', () => {
+      document.getElementById('statusDot').classList.add('connected');
+      document.getElementById('statusLabel').textContent = 'Live — receiving real-time updates';
+    });
+
+    socket.on('disconnect', () => {
+      document.getElementById('statusDot').classList.remove('connected');
+      document.getElementById('statusLabel').textContent = 'Disconnected — reconnecting...';
+    });
+
+    // ── Handle live traffic update ────────────────────────────
+    socket.on('traffic_update', (data) => {
+      updateStats(data.stats);
+      updateLanes(data.signals);
+      updateHistory(data.history);
+    });
+
+    function updateStats(stats) {
+      document.getElementById('total').textContent     = stats.total_vehicles;
+      document.getElementById('wait').textContent      = stats.avg_wait_time + 's';
+      document.getElementById('junctions').textContent = stats.active_junctions;
+      document.getElementById('peak').textContent      = stats.peak_lane;
     }
 
-    function clearError() {
-      document.getElementById('errorMsg').innerHTML = '';
-    }
-
-    async function fetchStats() {
-      const res  = await fetch(`${BASE}/api/stats`);
-      const json = await res.json();
-      document.getElementById('total').textContent     = json.total_vehicles;
-      document.getElementById('wait').textContent      = json.avg_wait_time + 's';
-      document.getElementById('junctions').textContent = json.active_junctions;
-      document.getElementById('peak').textContent      = json.peak_lane;
-    }
-
-    async function fetchSignals() {
-      const res  = await fetch(`${BASE}/api/signals`);
-      const json = await res.json();
+    function updateLanes(signals) {
       const container = document.getElementById('lanes');
       container.innerHTML = '';
-
-      json.data.forEach(lane => {
+      signals.forEach(lane => {
         const pct = Math.min(100, Math.round(lane.vehicles / 3));
-        container.innerHTML += `
-          <div class="lane-card">
-            <div class="lane-name">
-              <span class="signal-dot ${lane.signal}"></span>
-              ${lane.lane} lane
-            </div>
-            <div style="font-size:13px; color:#444;">
-              Signal: <strong>${lane.signal}</strong> &nbsp;|&nbsp; Green for: ${lane.duration}s
-            </div>
-            <div class="bar-bg">
-              <div class="bar-fill" style="width:${pct}%"></div>
-            </div>
-            <div class="lane-meta">${lane.vehicles} vehicles detected</div>
-          </div>`;
+        const card = document.createElement('div');
+        card.className = 'lane-card';
+        card.innerHTML = `
+          <div class="lane-name">
+            <span class="signal-dot ${lane.signal}"></span>
+            ${lane.lane} lane
+          </div>
+          <div style="font-size:13px; color:#444;">
+            Signal: <strong>${lane.signal}</strong> &nbsp;|&nbsp; Green for: ${lane.duration}s
+          </div>
+          <div class="bar-bg">
+            <div class="bar-fill" style="width:${pct}%"></div>
+          </div>
+          <div class="lane-meta">${lane.vehicles} vehicles detected</div>`;
+        container.appendChild(card);
+
+        // Flash animation on update
+        setTimeout(() => card.classList.add('flash'), 50);
+        setTimeout(() => card.classList.remove('flash'), 600);
       });
     }
 
-    async function fetchHistory() {
-      const res  = await fetch(`${BASE}/api/history`);
-      const json = await res.json();
+    function updateHistory(history) {
       const body = document.getElementById('historyBody');
-      const colors = { GREEN: '#2e7d32', AMBER: '#f57c00', RED: '#c62828' };
-
-      if (!json.data || json.data.length === 0) {
-        body.innerHTML = '<tr><td colspan="5" style="padding:14px; color:#888;">No history yet — data will appear shortly.</td></tr>';
+      if (!history || history.length === 0) {
+        body.innerHTML = '<tr><td colspan="5" style="padding:14px;color:#888;">No history yet.</td></tr>';
         return;
       }
-
-      body.innerHTML = '';
-      json.data.forEach(row => {
-        body.innerHTML += `
-          <tr style="border-top: 1px solid #eee;">
-            <td style="padding: 9px 14px; color: #888;">${row.timestamp}</td>
-            <td style="padding: 9px 14px;">${row.lane}</td>
-            <td style="padding: 9px 14px;">
-              <span style="color:${colors[row.signal]}; font-weight:bold;">${row.signal}</span>
-            </td>
-            <td style="padding: 9px 14px;">${row.vehicles}</td>
-            <td style="padding: 9px 14px;">${row.duration}s</td>
-          </tr>`;
-      });
+      body.innerHTML = history.map(row => `
+        <tr>
+          <td style="color:#888;">${row.timestamp}</td>
+          <td>${row.lane}</td>
+          <td><span style="color:${colors[row.signal]};font-weight:bold;">${row.signal}</span></td>
+          <td>${row.vehicles}</td>
+          <td>${row.duration}s</td>
+        </tr>`).join('');
     }
-
-    async function refresh() {
-      try {
-        await fetchStats();
-        await fetchSignals();
-        await fetchHistory();
-        clearError();
-      } catch (err) {
-        showError(err.message);
-      }
-    }
-
-    refresh();
-    setInterval(refresh, 3000);
   </script>
 </body>
 </html>
